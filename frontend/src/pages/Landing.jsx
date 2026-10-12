@@ -752,7 +752,7 @@ const LandingPage = () => {
 
 
                     {/* Feature cards */}
-                    <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 font-bold text-slate-900">
 
                         {features.map((feature) => (
                             <FeatureCard
@@ -786,7 +786,7 @@ const LandingPage = () => {
                 <div className="relative mx-auto grid max-w-7xl grid-cols-2 gap-5 px-5 sm:px-6 md:grid-cols-4 lg:px-8">
 
                     {/* Stat */}
-                    <div className="flex items-center justify-center gap-3">
+                    <div className="flex items-center justify-center gap-3 text-bold text-slate-900">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600/60 text-white">
                             <UserIcon />
                         </div>
@@ -894,7 +894,7 @@ const LandingPage = () => {
                     <div className="mt-7 grid items-center gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
 
                         {/* Step 1 */}
-                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm text-[10px] font-bold text-slate-900">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                                 <UserIcon />
                             </div>
@@ -924,7 +924,7 @@ const LandingPage = () => {
 
 
                         {/* Step 2 */}
-                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm text-[10px] font-bold text-slate-900">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                                 <SearchIcon />
                             </div>
@@ -954,7 +954,7 @@ const LandingPage = () => {
 
 
                         {/* Step 3 */}
-                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm text-[10px] font-bold text-slate-900">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                                 <FileIcon />
                             </div>
@@ -984,7 +984,7 @@ const LandingPage = () => {
 
 
                         {/* Step 4 */}
-                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+                        <div className="flex h-[58px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 shadow-sm text-[10px] font-bold text-slate-900">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                                 <ChartIcon />
                             </div>
@@ -1093,7 +1093,7 @@ const LandingPage = () => {
                                     </div>
 
 
-                                    <div className="mt-3 space-y-2">
+                                    <div className="mt-3 space-y-2 font-bold text-[9px]">
 
                                         {[
                                             ["4", "Fix 4 critical technical issues", "High"],
@@ -1189,7 +1189,7 @@ const LandingPage = () => {
                     </div>
 
 
-                    <div className="mt-5 grid gap-3 md:grid-cols-3">
+                    <div className="mt-5 grid gap-3 md:grid-cols-3 font-bold text-slate-200 text-[10px]">
 
                         {[
                             {
