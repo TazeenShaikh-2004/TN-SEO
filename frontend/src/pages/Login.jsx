@@ -217,7 +217,7 @@ function Login() {
   /* Where to go after authenticating (deep link, otherwise dashboard). */
   const destination = (() => {
     const from = location.state?.from;
-    return from && !from.startsWith("/login") ? from : "/dashboard";
+    return from && !from.startsWith("/login") ? from : "/projects";
   })();
 
   useEffect(() => {
@@ -356,43 +356,45 @@ function Login() {
      LOGIN
   ========================= */
 
-  const handleLogin = async (event) => {
-    event.preventDefault();
+ 
+const handleLogin = async (event) => {
+  event.preventDefault();
 
-    setError("");
-    setSuccess("");
+  setError("");
+  setSuccess("");
 
-    const email = formData.email.trim().toLowerCase();
-    const password = formData.password.trim();
+  const email = formData.email.trim().toLowerCase();
+  const password = formData.password.trim();
 
-    if (!email || !password) {
-      setError("Please enter your email and password.");
-      return;
-    }
+  if (!email || !password) {
+    setError("Please enter your email and password.");
+    return;
+  }
 
-    if (!EMAIL_PATTERN.test(email)) {
-      setError("Please enter a valid email address.");
-      return;
-    }
+  if (!EMAIL_PATTERN.test(email)) {
+    setError("Please enter a valid email address.");
+    return;
+  }
 
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
 
-      await login({
-        email,
-        password,
-        rememberMe,
-      });
+    await login({
+      email,
+      password,
+      rememberMe,
+    });
 
-      navigate(destination, { replace: true });
-    } catch (err) {
-      setError(
-        err?.message || "Invalid email or password."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    navigate("/projects", { replace: true });
+  } catch (err) {
+    setError(
+      err?.message || "Invalid email or password."
+    );
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   /* =========================
      SIGNUP

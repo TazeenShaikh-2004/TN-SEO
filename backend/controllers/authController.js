@@ -234,6 +234,7 @@ export async function googleLogin(req, res, next) {
 
 /* ------------------------------ forgot password ----------------------------- */
 
+
 export async function forgotPassword(req, res, next) {
     try {
         const email = (req.body?.email || "").trim().toLowerCase();
@@ -242,44 +243,81 @@ export async function forgotPassword(req, res, next) {
             return badRequest(res, "Please enter a valid email address.");
         }
 
-        // Never reveals whether the account exists (no user enumeration).
+        // Do not reveal whether an account exists.
         const generic = {
             success: true,
-            message: "If an account exists for that email, a password reset link has been sent.",
+            message:
+                "If an account exists for that email, a password reset link has been sent.",
         };
 
         const user = await User.findOne({ email });
 
-        if (!user) return res.json(generic);
+        if (!user) {
+            return res.json(generic);
+        }
 
+        // Generate a secure, single-use token that expires in 30 minutes.
         const token = crypto.randomBytes(32).toString("base64url");
+
         user.passwordResetTokenHash = sha256(token);
-        user.passwordResetExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+        user.passwordResetExpires = new Date(
+            Date.now() + RESET_TOKEN_TTL_MS
+        );
+
         await user.save();
 
-        const resetUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/reset-password/${token}`;
+        const clientUrl = (
+            process.env.CLIENT_URL || "http://localhost:5173"
+        ).replace(/\/+$/, "");
+
+        const resetUrl = `${clientUrl}/reset-password/${token}`;
+
+        // Never return the reset token or reset URL in the API response.
+        if (!isSmtpConfigured()) {
+            console.error(
+                "[mail] SMTP is not configured. Password reset email was not sent."
+            );
+            return res.status(503).json({
+                success: false,
+                message:
+                    "Password reset email is temporarily unavailable. Please try again later.",
+            });
+        }
 
         let emailed = false;
-        if (isSmtpConfigured()) {
-            try {
-                emailed = await sendPasswordResetEmail({ to: user.email, fullName: user.fullName, resetUrl });
-            } catch (error) {
-                console.error("[mail] password reset email failed:", error.message);
-            }
+
+        try {
+            emailed = await sendPasswordResetEmail({
+                to: user.email,
+                fullName: user.fullName,
+                resetUrl,
+            });
+        } catch (error) {
+            console.error(
+                "[mail] Password reset email failed:",
+                error.message
+            );
         }
 
-        // Development convenience: no SMTP configured -> log the link and, outside
-        // production, return it so the flow is testable without an email server.
-        if (!emailed && process.env.NODE_ENV !== "production") {
-            console.log(`[auth] Password reset link for ${email}: ${resetUrl}`);
-            return res.json({ ...generic, devResetUrl: resetUrl });
+        if (!emailed) {
+            // Invalidate the token because the email was not sent.
+            user.passwordResetTokenHash = undefined;
+            user.passwordResetExpires = undefined;
+            await user.save();
+
+            return res.status(503).json({
+                success: false,
+                message:
+                    "Unable to send the reset email right now. Please try again later.",
+            });
         }
 
-        res.json(generic);
+        return res.json(generic);
     } catch (error) {
         next(error);
     }
 }
+
 
 export async function resetPassword(req, res, next) {
     try {

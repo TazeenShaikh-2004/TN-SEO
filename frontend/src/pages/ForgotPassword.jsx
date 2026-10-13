@@ -4,7 +4,6 @@ import { forgotPassword } from "../services/authService.js";
 import BrandMark from "../components/BrandLogo.jsx";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
 function MailIcon() {
     return (
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -87,28 +86,14 @@ export default function ForgotPassword() {
                         </div>
                     )}
 
-                    {result && (
-                        <div
-                            role="status"
-                            className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-700"
-                        >
-                            {result.message}
-
-                            {result.devResetUrl && (
-                                <div className="mt-3 rounded-lg border border-emerald-200 bg-white px-3 py-3 text-[#273038]">
-                                    <p className="text-[12px] font-bold uppercase tracking-wide text-[#15945d]">
-                                        Development mode (no email server)
-                                    </p>
-                                    <a
-                                        href={result.devResetUrl}
-                                        className="mt-1.5 inline-flex items-center gap-2 rounded-[7px] bg-[#079b59] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#07894f]"
-                                    >
-                                        Open reset link
-                                    </a>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                   {result && (
+    <div
+        role="status"
+        className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-700"
+    >
+        {result.message}
+    </div>
+)}
 
                     <form onSubmit={handleSubmit} className="mt-6" aria-busy={loading}>
 
