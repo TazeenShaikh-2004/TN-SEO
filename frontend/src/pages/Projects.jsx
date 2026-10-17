@@ -28,6 +28,85 @@ function Icon({ children, className = "h-4 w-4", ...props }) {
   );
 }
 
+// Accept domains with or without https://.
+// Reject malformed URLs and local/private development hostnames.
+function validateWebsiteUrl(value) {
+  const input = value.trim();
+
+  if (!input) {
+    return { valid: false, message: "Please enter your website URL." };
+  }
+
+  if (/\s/.test(input)) {
+    return {
+      valid: false,
+      message: "The website URL cannot contain spaces.",
+    };
+  }
+
+  const normalized = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+
+  let parsed;
+
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return {
+      valid: false,
+      message: "Enter a valid website URL, such as https://example.com.",
+    };
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return {
+      valid: false,
+      message: "Only HTTP and HTTPS website URLs are supported.",
+    };
+  }
+
+  if (
+    !parsed.hostname.includes(".") ||
+    parsed.hostname.startsWith(".") ||
+    parsed.hostname.endsWith(".") ||
+    parsed.username ||
+    parsed.password
+  ) {
+    return {
+      valid: false,
+      message: "Enter a valid public website URL, such as https://example.com.",
+    };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local")
+  ) {
+    return {
+      valid: false,
+      message: "Please enter a public website URL.",
+    };
+  }
+
+  return { valid: true, url: parsed.toString() };
+}
+
+function getFriendlyError(error) {
+  if (error?.status === 400) {
+    return error.message === "Invalid request body"
+      ? "Please check the project name, website URL, and primary keyword."
+      : error.message || "Please check the project details and try again.";
+  }
+
+  if (error?.status === 401) {
+    return "Your session may have expired. Please log in again.";
+  }
+
+  return error?.message || "Something went wrong. Please try again.";
+}
+
 function StatusBadge({ project }) {
   if (project.status === "pending" || project.status === "paused") {
     return null;
@@ -197,6 +276,7 @@ function ProjectModal({ onClose, onCreate, saving }) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [validationError, setValidationError] = useState("");
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -205,19 +285,45 @@ function ProjectModal({ onClose, onCreate, saving }) {
 
     window.addEventListener("keydown", handleKeyDown);
 
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, saving]);
 
   function handleSubmit(event) {
     event.preventDefault();
+    setValidationError("");
 
-    if (!name.trim() || !url.trim() || saving) return;
+    if (!name.trim()) {
+      setValidationError("Please enter a project name.");
+      return;
+    }
+
+    if (name.trim().length > 100) {
+      setValidationError("Project name cannot exceed 100 characters.");
+      return;
+    }
+
+    if (!keyword.trim()) {
+      setValidationError("Please enter a primary keyword.");
+      return;
+    }
+
+    if (keyword.trim().length > 200) {
+      setValidationError("Primary keyword cannot exceed 200 characters.");
+      return;
+    }
+
+    const result = validateWebsiteUrl(url);
+
+    if (!result.valid) {
+      setValidationError(result.message);
+      return;
+    }
+
+    if (saving) return;
 
     onCreate({
       name: name.trim(),
-      url: url.trim(),
+      url: result.url,
       keyword: keyword.trim(),
     });
   }
@@ -231,6 +337,7 @@ function ProjectModal({ onClose, onCreate, saving }) {
     >
       <form
         onSubmit={handleSubmit}
+        noValidate
         className="modal-enter w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl sm:p-7"
         role="dialog"
         aria-modal="true"
@@ -248,13 +355,27 @@ function ProjectModal({ onClose, onCreate, saving }) {
           Enter your website details to start tracking SEO performance.
         </p>
 
+        {/* Validation errors appear above the form fields. */}
+        {validationError && (
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {validationError}
+          </div>
+        )}
+
         <label className="mb-4 block text-xs font-semibold text-slate-800">
           Project Name <span className="text-red-500">*</span>
           <input
             autoFocus
             required
+            maxLength={100}
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              setValidationError("");
+            }}
             placeholder="e.g. My Business Website"
             className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-green-50 px-3 py-2.5 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:bg-white focus:ring-4 focus:ring-green-100"
           />
@@ -265,18 +386,35 @@ function ProjectModal({ onClose, onCreate, saving }) {
           <input
             required
             type="text"
+            inputMode="url"
+            autoComplete="url"
             value={url}
-            onChange={(event) => setUrl(event.target.value)}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              setValidationError("");
+            }}
+            onBlur={() => {
+              if (url.trim()) {
+                const result = validateWebsiteUrl(url);
+                if (result.valid) setUrl(result.url);
+              }
+            }}
             placeholder="https://example.com"
+            aria-invalid={Boolean(validationError)}
             className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-green-50 px-3 py-2.5 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:bg-white focus:ring-4 focus:ring-green-100"
           />
         </label>
 
         <label className="block text-xs font-semibold text-slate-800">
-          Primary Keyword
+          Primary Keyword <span className="text-red-500">*</span>
           <input
+            required
+            maxLength={200}
             value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
+            onChange={(event) => {
+              setKeyword(event.target.value);
+              setValidationError("");
+            }}
             placeholder="e.g. best seo tools"
             className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-green-50 px-3 py-2.5 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-green-500 focus:bg-white focus:ring-4 focus:ring-green-100"
           />
@@ -343,9 +481,7 @@ export default function Projects() {
           setProjects(savedProjects);
         }
       } catch (err) {
-        if (active) {
-          setError(err.message || "Could not load projects.");
-        }
+        if (active) setError(getFriendlyError(err));
       } finally {
         if (active) setLoading(false);
       }
@@ -361,6 +497,7 @@ export default function Projects() {
   function showToast(message) {
     window.clearTimeout(toastTimer.current);
     setToastMessage(message);
+
     toastTimer.current = window.setTimeout(() => {
       setToastMessage("");
     }, 2600);
@@ -371,9 +508,10 @@ export default function Projects() {
     setError("");
 
     try {
+      // apiRequest handles JSON.stringify internally.
       const data = await apiRequest("/projects", {
         method: "POST",
-        body: JSON.stringify(details),
+        body: details,
       });
 
       const createdProject = {
@@ -385,10 +523,10 @@ export default function Projects() {
       setModalOpen(false);
       showToast(`Project "${createdProject.name}" created`);
 
-      // First project is saved; continue to the dashboard.
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(err.message || "Could not create the project.");
+      setError(getFriendlyError(err));
+      // Keep the modal open so the user can correct their input.
     } finally {
       setSaving(false);
     }
@@ -421,159 +559,165 @@ export default function Projects() {
         navigate("/projects", { replace: true });
       }
     } catch (err) {
-      setError(err.message || "Could not delete the project.");
+      setError(getFriendlyError(err));
     }
   }
 
   return (
-    <>
-      <div className="projects-root text-slate-900">
-        <div className="mx-auto flex w-full max-w-[1500px] flex-col">
-          <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-10 pt-6 sm:px-7 sm:pt-8">
-            <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-[220px] flex-1">
-                <h1 className="flex items-center gap-2 text-2xl font-bold sm:text-[30px]">
-                  <Icon className="h-6 w-6 text-green-600">
-                    <path d="M3 6h6l2 2h10v11H3z" />
-                  </Icon>
-                  Projects<span className="text-green-600">.</span>
-                </h1>
+    <div className="projects-root text-slate-900">
+      <div className="mx-auto flex w-full max-w-[1500px] flex-col">
+        <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-10 pt-6 sm:px-7 sm:pt-8">
+          <section className="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-[220px] flex-1">
+              <h1 className="flex items-center gap-2 text-2xl font-bold sm:text-[30px]">
+                <Icon className="h-6 w-6 text-green-600">
+                  <path d="M3 6h6l2 2h10v11H3z" />
+                </Icon>
+                Projects<span className="text-green-600">.</span>
+              </h1>
 
-                <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-[13px]">
-                  Manage and monitor all your SEO projects, audits and rankings
-                  in one place.
-                </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-[13px]">
+                Manage and monitor all your SEO projects, audits and rankings in
+                one place.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-br from-green-600 to-green-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-green-700/20 transition hover:-translate-y-0.5 hover:brightness-105 sm:px-5 sm:py-3 sm:text-[13px]"
+            >
+              <Icon className="h-4 w-4">
+                <path d="M12 5v14M5 12h14" />
+              </Icon>
+              Add New Project
+            </button>
+          </section>
+
+          {error && !modalOpen && (
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm">
+              <p className="text-sm text-slate-500">Loading your projects...</p>
+            </section>
+          ) : projects.length === 0 ? (
+            <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm sm:py-16">
+              <div className="mx-auto mb-5 grid h-[68px] w-[68px] place-items-center rounded-full border border-green-100 bg-green-50 text-green-500">
+                <Icon className="h-8 w-8" strokeWidth="1.6">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                </Icon>
               </div>
+
+              <h2 className="text-xl font-bold">
+                No projects <span className="text-green-600">yet</span>
+              </h2>
+
+              <p className="mx-auto mb-5 mt-2 max-w-sm text-[13px] leading-6 text-slate-600">
+                Create your first project to start tracking SEO performance,
+                rankings and analytics.
+              </p>
 
               <button
                 type="button"
-                onClick={() => setModalOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-br from-green-600 to-green-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-green-700/20 transition hover:-translate-y-0.5 hover:brightness-105 sm:px-5 sm:py-3 sm:text-[13px]"
+                onClick={() => {
+                  setError("");
+                  setModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700"
               >
                 <Icon className="h-4 w-4">
                   <path d="M12 5v14M5 12h14" />
                 </Icon>
-                Add New Project
+                Create Your First Project
               </button>
             </section>
-
-            {error && (
-              <div
-                role="alert"
-                className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-              >
-                {error}
-              </div>
-            )}
-
-            {loading ? (
-              <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm">
-                <p className="text-sm text-slate-500">
-                  Loading your projects...
-                </p>
-              </section>
-            ) : projects.length === 0 ? (
-              <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm sm:py-16">
-                <div className="mx-auto mb-5 grid h-[68px] w-[68px] place-items-center rounded-full border border-green-100 bg-green-50 text-green-500">
-                  <Icon className="h-8 w-8" strokeWidth="1.6">
-                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  </Icon>
-                </div>
-
-                <h2 className="text-xl font-bold">
-                  No projects <span className="text-green-600">yet</span>
-                </h2>
-
-                <p className="mx-auto mb-5 mt-2 max-w-sm text-[13px] leading-6 text-slate-600">
-                  Create your first project to start tracking SEO performance,
-                  rankings and analytics.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700"
-                >
-                  <Icon className="h-4 w-4">
-                    <path d="M12 5v14M5 12h14" />
-                  </Icon>
-                  Create Your First Project
-                </button>
-              </section>
-            ) : (
-              <section
-                className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
-                aria-label="Projects"
-              >
-                {projects.map((project) => (
-                  <ProjectCard
-                    key={project._id}
-                    project={project}
-                    onApply={(item) =>
-                      showToast(`Project "${item.name}" applied`)
-                    }
-                    onDelete={deleteProject}
-                    onOpen={() => navigate("/dashboard")}
-                  />
-                ))}
-              </section>
-            )}
-
-            <section className="mt-7 flex flex-wrap items-center gap-4 rounded-xl border border-green-100 bg-gradient-to-r from-green-50 via-green-50 to-emerald-100 px-5 py-5 sm:px-6">
-              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white shadow-md shadow-green-700/20">
-                <Icon className="h-6 w-6">
-                  <circle cx="12" cy="12" r="9" />
-                  <circle cx="12" cy="12" r="5" />
-                  <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-                </Icon>
-              </div>
-
-              <div className="min-w-[190px] flex-1">
-                <h2 className="text-base font-bold text-green-950">
-                  Boost{" "}
-                  <span className="text-green-600">all your projects</span> with
-                  AI
-                </h2>
-
-                <p className="mt-0.5 text-xs leading-5 text-slate-600">
-                  Get personalized recommendations to improve every project's
-                  SEO and rank higher.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  showToast("AI optimization queued for all projects")
-                }
-                className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700"
-              >
-                Optimize with AI <span aria-hidden="true">→</span>
-              </button>
+          ) : (
+            <section
+              className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+              aria-label="Projects"
+            >
+              {projects.map((project) => (
+                <ProjectCard
+                  key={project._id}
+                  project={project}
+                  onApply={(item) =>
+                    showToast(`Project "${item.name}" applied`)
+                  }
+                  onDelete={deleteProject}
+                  onOpen={() => navigate("/dashboard")}
+                />
+              ))}
             </section>
-          </main>
-        </div>
+          )}
 
-        {modalOpen && (
-          <ProjectModal
-            onClose={() => setModalOpen(false)}
-            onCreate={createProject}
-            saving={saving}
-          />
-        )}
+          <section className="mt-7 flex flex-wrap items-center gap-4 rounded-xl border border-green-100 bg-gradient-to-r from-green-50 via-green-50 to-emerald-100 px-5 py-5 sm:px-6">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white shadow-md shadow-green-700/20">
+              <Icon className="h-6 w-6">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="5" />
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+              </Icon>
+            </div>
 
-        {toastMessage && (
-          <div
-            role="status"
-            className="toast-enter fixed bottom-5 right-5 z-[60] flex max-w-[calc(100vw-2.5rem)] items-center gap-2 rounded-lg bg-green-900 px-4 py-3 text-sm font-medium text-white shadow-xl"
-          >
-            <Icon className="h-4 w-4 shrink-0 text-lime-300">
-              <path d="m20 6-11 11-5-5" />
-            </Icon>
-            <span>{toastMessage}</span>
-          </div>
-        )}
+            <div className="min-w-[190px] flex-1">
+              <h2 className="text-base font-bold text-green-950">
+                Boost <span className="text-green-600">all your projects</span>{" "}
+                with AI
+              </h2>
+
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">
+                Get personalized recommendations to improve every project's SEO
+                and rank higher.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                showToast("AI optimization queued for all projects")
+              }
+              className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700"
+            >
+              Optimize with AI <span aria-hidden="true">→</span>
+            </button>
+          </section>
+        </main>
       </div>
-    </>
+
+      {modalOpen && (
+        <ProjectModal
+          onClose={() => {
+            if (!saving) {
+              setModalOpen(false);
+              setError("");
+            }
+          }}
+          onCreate={createProject}
+          saving={saving}
+        />
+      )}
+
+      {toastMessage && (
+        <div
+          role="status"
+          className="toast-enter fixed bottom-5 right-5 z-[60] flex max-w-[calc(100vw-2.5rem)] items-center gap-2 rounded-lg bg-green-900 px-4 py-3 text-sm font-medium text-white shadow-xl"
+        >
+          <Icon className="h-4 w-4 shrink-0 text-lime-300">
+            <path d="m20 6-11 11-5-5" />
+          </Icon>
+          <span>{toastMessage}</span>
+        </div>
+      )}
+    </div>
   );
 }
