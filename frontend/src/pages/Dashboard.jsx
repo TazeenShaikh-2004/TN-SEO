@@ -6,9 +6,7 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronRight,
-  Clock3,
   RefreshCw,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 
@@ -19,95 +17,157 @@ import {
   DEFAULT_PERIOD,
   DELTA_LABEL,
   DASHBOARD_HEADER,
-  INSIGHTS,
-  KEYWORD_RANKINGS,
-  KPIS,
   PERIODS,
-  TOP_PAGES,
-  TRAFFIC_TREND,
   UPGRADE_CTA,
 } from "../data/dashboard.js";
 import { ALERTS } from "../data/site.js";
-import auditService from "../services/auditService";
+import { apiRequest } from "../services/api.js";
+import { auditService } from "../services/auditService.js";
 
-function formatAuditDate(date) {
-  if (!date) return "Not available";
+const ACTIVE_PROJECT_KEY = "tn-seo-active-project-id";
 
-  const parsed = new Date(date);
+function getErrorMessage(error) {
+  if (error?.status === 401) {
+    return "Your session has expired. Please log in again.";
+  }
 
-  return Number.isNaN(parsed.getTime())
-    ? "Not available"
-    : parsed.toLocaleString();
+  return error?.message || "Something went wrong. Please try again.";
 }
 
-function getScoreStyle(score) {
-  if (score >= 80) {
-    return {
-      text: "text-emerald-700",
-      ring: "text-emerald-500",
-      label: "Good",
-      bg: "bg-emerald-50",
-    };
-  }
+function formatDate(value) {
+  if (!value) return "Not available";
 
-  if (score >= 50) {
-    return {
-      text: "text-amber-700",
-      ring: "text-amber-500",
-      label: "Needs improvement",
-      bg: "bg-amber-50",
-    };
-  }
+  const date = new Date(value);
 
-  return {
-    text: "text-red-700",
-    ring: "text-red-500",
-    label: "Needs attention",
-    bg: "bg-red-50",
-  };
+  if (Number.isNaN(date.getTime())) return "Not available";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function getCheckStyle(status) {
-  if (status === "passed") {
-    return {
-      label: "Passed",
-      badge: "bg-emerald-50 text-emerald-700",
-      icon: "text-emerald-600",
-      symbol: "✓",
-    };
+function getCheckCounts(checks = []) {
+  return checks.reduce(
+    (counts, check) => {
+      if (check.status === "passed") counts.passed += 1;
+      else if (check.status === "warning") counts.warning += 1;
+      else if (check.status === "failed") counts.failed += 1;
+
+      return counts;
+    },
+    { passed: 0, warning: 0, failed: 0 },
+  );
+}
+
+function getCheckTone(status) {
+  if (status === "passed") return "good";
+  if (status === "warning") return "warn";
+  return "bad";
+}
+
+function getCheckLabel(status) {
+  if (status === "passed") return "Passed";
+  if (status === "warning") return "Warning";
+  return "Failed";
+}
+
+function getAuditInsights(checks = []) {
+  const failed = checks.filter((check) => check.status === "failed");
+  const warnings = checks.filter((check) => check.status === "warning");
+  const passed = checks.filter((check) => check.status === "passed");
+
+  const insights = [];
+
+  if (failed.length > 0) {
+    insights.push({
+      text: `${failed.length} SEO check${failed.length === 1 ? "" : "s"} need attention. Start with: ${failed[0].name}.`,
+      done: false,
+    });
   }
 
-  if (status === "warning") {
-    return {
-      label: "Warning",
-      badge: "bg-amber-50 text-amber-700",
-      icon: "text-amber-600",
-      symbol: "!",
-    };
+  if (warnings.length > 0) {
+    insights.push({
+      text: `${warnings.length} check${warnings.length === 1 ? "" : "s"} could be improved.`,
+      done: false,
+    });
   }
 
-  return {
-    label: "Failed",
-    badge: "bg-red-50 text-red-700",
-    icon: "text-red-600",
-    symbol: "!",
-  };
+  if (passed.length > 0) {
+    insights.push({
+      text: `${passed.length} SEO check${passed.length === 1 ? "" : "s"} passed successfully.`,
+      done: true,
+    });
+  }
+
+  if (insights.length === 0) {
+    insights.push({
+      text: "Run an audit to get recommendations based on your website.",
+      done: false,
+    });
+  }
+
+  return insights;
+}
+
+function EmptyState({ children }) {
+  return (
+    <div className="flex min-h-[110px] flex-1 items-center justify-center px-3 py-6 text-center text-xs leading-5 text-muted">
+      {children}
+    </div>
+  );
+}
+
+function MetricCard({ title, value, unit, sub, viz }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-line bg-white p-4 text-left shadow-sm">
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold">{title}</h2>
+
+        <div className="mt-2 flex items-baseline gap-1">
+          <strong className="text-2xl leading-7">{value}</strong>
+          {unit && <small className="text-xs text-muted">{unit}</small>}
+        </div>
+
+        <div className="mt-1 text-xs font-medium text-muted">{sub}</div>
+      </div>
+
+      {viz?.type === "ring" && (
+        <div
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
+          style={{
+            background: `conic-gradient(#0bb568 0deg ${viz.value * 3.6}deg, #e4ecec ${viz.value * 3.6}deg 360deg)`,
+          }}
+        >
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-sm font-bold">
+            {viz.value}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get("projectId");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [dateRange, setDateRange] = useState(DEFAULT_DATE_RANGE);
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
 
+  const [projects, setProjects] = useState([]);
+  const [project, setProject] = useState(null);
   const [audit, setAudit] = useState(null);
-  const [auditLoading, setAuditLoading] = useState(true);
-  const [auditRunning, setAuditRunning] = useState(false);
+
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [runningAudit, setRunningAudit] = useState(false);
+
+  const [pageError, setPageError] = useState("");
   const [auditError, setAuditError] = useState("");
-  const [auditMessage, setAuditMessage] = useState("");
-  const [showAllChecks, setShowAllChecks] = useState(false);
+
+  const projectIdFromUrl = searchParams.get("projectId");
 
   const pickDateRange = () => {
     const selected = prompt("Enter date range:", dateRange);
@@ -124,97 +184,200 @@ export default function Dashboard() {
       String(PERIODS.indexOf(period) + 1),
     );
 
-    const index = parseInt(selected, 10) - 1;
+    const index = Number.parseInt(selected, 10) - 1;
 
     if (!Number.isNaN(index) && PERIODS[index]) {
       setPeriod(PERIODS[index]);
     }
   };
 
-  // Load the latest real audit for the selected project.
-  const loadLatestAudit = useCallback(async () => {
+  // Load the user's saved projects and restore their previous selection.
+  useEffect(() => {
+    let active = true;
+
+    async function loadProjects() {
+      setProjectsLoading(true);
+      setPageError("");
+
+      try {
+        const data = await apiRequest("/projects");
+        const savedProjects = data.projects || [];
+
+        if (!active) return;
+
+        setProjects(savedProjects);
+
+        if (savedProjects.length === 0) {
+          setProject(null);
+          setAudit(null);
+          localStorage.removeItem(ACTIVE_PROJECT_KEY);
+          return;
+        }
+
+        const savedProjectId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+
+        const selectedProject =
+          savedProjects.find((item) => item._id === projectIdFromUrl) ||
+          savedProjects.find((item) => item._id === savedProjectId) ||
+          savedProjects[0];
+
+        setProject(selectedProject);
+
+        localStorage.setItem(ACTIVE_PROJECT_KEY, selectedProject._id);
+
+        // Keep the existing dashboard URL style while adding the ID.
+        if (projectIdFromUrl !== selectedProject._id) {
+          setSearchParams(
+            { projectId: selectedProject._id },
+            { replace: true },
+          );
+        }
+      } catch (error) {
+        if (active) {
+          setPageError(getErrorMessage(error));
+        }
+      } finally {
+        if (active) setProjectsLoading(false);
+      }
+    }
+
+    loadProjects();
+
+    return () => {
+      active = false;
+    };
+  }, [projectIdFromUrl, setSearchParams]);
+
+  // Load the latest saved audit for the active project.
+  const loadLatestAudit = useCallback(async (projectId) => {
     if (!projectId) {
       setAudit(null);
       setAuditLoading(false);
-      setAuditError("");
       return;
     }
 
     setAuditLoading(true);
     setAuditError("");
-    setAuditMessage("");
 
     try {
-      const result = await auditService.getLatestAudit(projectId);
-      setAudit(result.audit ?? null);
+      const data = await auditService.getLatestAudit(projectId);
+      setAudit(data.audit || null);
     } catch (error) {
-      if (error.status === 404) {
+      if (error?.status === 404) {
+        // A project without an audit is a normal first-time state.
         setAudit(null);
+        setAuditError("");
       } else {
-        setAuditError(error.message || "Unable to load the latest SEO audit.");
+        setAuditError(getErrorMessage(error));
         setAudit(null);
       }
     } finally {
       setAuditLoading(false);
     }
-  }, [projectId]);
+  }, []);
 
   useEffect(() => {
-    loadLatestAudit();
-  }, [loadLatestAudit]);
+    if (project?._id) {
+      localStorage.setItem(ACTIVE_PROJECT_KEY, project._id);
+      loadLatestAudit(project._id);
+    } else if (!projectsLoading) {
+      setAudit(null);
+      setAuditLoading(false);
+    }
+  }, [project?._id, projectsLoading, loadLatestAudit]);
 
-  // Run a new audit using the backend.
-  const handleRunAudit = async () => {
-    if (!projectId || auditRunning) return;
+  // Run a new audit using the existing backend audit service.
+  async function handleRunAudit() {
+    if (!project?._id || runningAudit) return;
 
-    setAuditRunning(true);
+    setRunningAudit(true);
     setAuditError("");
-    setAuditMessage("");
 
     try {
-      const result = await auditService.runAudit(projectId);
+      const data = await auditService.runAudit(project._id);
 
-      setAudit(result.audit ?? null);
-      setAuditMessage(result.message || "SEO audit completed successfully.");
-      setShowAllChecks(false);
+      if (data.audit) {
+        setAudit(data.audit);
+      } else {
+        await loadLatestAudit(project._id);
+      }
     } catch (error) {
-      setAuditError(error.message || "Unable to run the SEO audit.");
+      setAuditError(getErrorMessage(error));
 
-      // A failed audit is also saved by the backend.
-      // Reload it so the latest status can be displayed.
+      // The backend may save a failed audit before returning an error.
       try {
-        const latest = await auditService.getLatestAudit(projectId);
-        setAudit(latest.audit ?? null);
-      } catch (loadError) {
-        if (loadError.status === 404) {
-          setAudit(null);
-        }
+        const latest = await auditService.getLatestAudit(project._id);
+
+        if (latest.audit) setAudit(latest.audit);
+      } catch {
+        // Keep the original error visible.
       }
     } finally {
-      setAuditRunning(false);
+      setRunningAudit(false);
     }
-  };
+  }
 
-  const score = Number(audit?.seoScore ?? 0);
-  const scoreStyle = getScoreStyle(score);
-  const checks = audit?.checks ?? [];
+  function handleProjectChange(event) {
+    const nextProject = projects.find(
+      (item) => item._id === event.target.value,
+    );
 
-  const failedCount = checks.filter(
-    (check) => check.status === "failed",
-  ).length;
+    if (!nextProject) return;
 
-  const warningCount = checks.filter(
-    (check) => check.status === "warning",
-  ).length;
+    setProject(nextProject);
+    setAudit(null);
+    setAuditError("");
 
-  const passedCount = checks.filter(
-    (check) => check.status === "passed",
-  ).length;
+    localStorage.setItem(ACTIVE_PROJECT_KEY, nextProject._id);
 
-  const visibleChecks = showAllChecks ? checks : checks.slice(0, 5);
+    setSearchParams({ projectId: nextProject._id });
+  }
+
+  const checks = audit?.checks || [];
+  const counts = getCheckCounts(checks);
+  const insights = getAuditInsights(checks);
+  const failedChecks = checks.filter((check) => check.status === "failed");
+  const warningChecks = checks.filter((check) => check.status === "warning");
+  const issues = [...failedChecks, ...warningChecks];
+
+  const auditReady = audit?.status === "completed";
+
+  const kpis = [
+    {
+      id: "health",
+      title: "SEO Health Score",
+      value: auditReady ? (audit.seoScore ?? 0) : "—",
+      unit: auditReady ? "/100" : "",
+      sub: auditReady
+        ? `${counts.passed} checks passed`
+        : "Run an audit to calculate",
+      viz: auditReady ? { type: "ring", value: audit.seoScore ?? 0 } : null,
+    },
+    {
+      id: "traffic",
+      title: "Organic Traffic",
+      value: "—",
+      unit: "",
+      sub: "Connect Google Search Console",
+    },
+    {
+      id: "keywords",
+      title: "Ranking Keywords",
+      value: "—",
+      unit: "",
+      sub: "Ranking data not connected",
+    },
+    {
+      id: "backlinks",
+      title: "Backlinks",
+      value: "—",
+      unit: "",
+      sub: "Backlink data not connected",
+    },
+  ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-2 [scrollbar-width:thin]">
+    <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto [scrollbar-width:thin] pb-1">
       {/* PAGE HEADING */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div>
@@ -222,349 +385,128 @@ export default function Dashboard() {
             {DASHBOARD_HEADER.title}
           </h1>
           <p className="text-xs text-muted">{DASHBOARD_HEADER.subtitle}</p>
+          {project && (
+            <p className="mt-1 max-w-[440px] truncate text-xs text-primary">
+              Website: {project.url}
+            </p>
+          )}
         </div>
 
-        <button
-          onClick={pickDateRange}
-          className="flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3.5 text-xs font-medium text-gray-700 transition hover:border-primary/50"
-        >
-          <CalendarDays className="h-4 w-4 text-primary" />
-          {dateRange}
-          <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {projects.length > 1 && (
+            <select
+              value={project?._id || ""}
+              onChange={handleProjectChange}
+              aria-label="Select project"
+              className="h-9 max-w-[220px] rounded-lg border border-line bg-white px-3 text-xs font-medium text-gray-700 outline-none focus:border-primary"
+            >
+              {projects.map((item) => (
+                <option key={item._id} value={item._id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <button
+            onClick={pickDateRange}
+            className="flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3.5 text-xs font-medium text-gray-700 hover:border-primary/50"
+          >
+            <CalendarDays className="h-4 w-4 text-primary" />
+            {dateRange}
+            <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
+          </button>
+        </div>
       </div>
 
-      {/* REAL SEO AUDIT */}
-      <section className="shrink-0 overflow-hidden rounded-xl border border-line bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4 sm:p-5">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <ShieldCheck className="h-5 w-5" />
-            </span>
+      {/* PROJECT / AUDIT STATUS */}
+      {pageError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"
+        >
+          {pageError}
+        </div>
+      )}
 
-            <div>
-              <h2 className="text-sm font-bold">Website SEO Audit</h2>
-              <p className="mt-0.5 text-xs text-muted">
-                Real on-page SEO checks from your saved project
-              </p>
-            </div>
+      {projectsLoading ? (
+        <section className="rounded-xl border border-line bg-white p-5 text-sm text-muted shadow-sm">
+          Loading your projects...
+        </section>
+      ) : projects.length === 0 ? (
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-white p-5 shadow-sm">
+          <div>
+            <h2 className="text-sm font-semibold">
+              Create your first SEO project
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              Add your website to start running audits and tracking available
+              SEO data.
+            </p>
           </div>
 
           <button
-            type="button"
+            onClick={() => navigate("/projects")}
+            className="flex h-9 items-center gap-2 rounded-lg bg-primary-dark px-4 text-xs font-semibold text-white transition hover:bg-primary"
+          >
+            Go to Projects
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </section>
+      ) : (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3 shadow-sm">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold">
+              {project?.name || "Your website"}
+            </h2>
+
+            <p className="mt-1 text-xs text-muted">
+              {auditReady
+                ? `Last audit: ${formatDate(audit.completedAt || audit.updatedAt)} · ${audit.pagesCrawled ?? 1} page(s) checked`
+                : audit?.status === "failed"
+                  ? "The latest audit failed. You can try again."
+                  : auditLoading
+                    ? "Loading your latest audit..."
+                    : "Run an audit to calculate your website's SEO health score."}
+            </p>
+          </div>
+
+          <button
             onClick={handleRunAudit}
-            disabled={!projectId || auditRunning || auditLoading}
-            className="flex h-9 items-center justify-center gap-2 rounded-lg bg-primary-dark px-4 text-xs font-semibold text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={runningAudit || auditLoading}
+            className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-primary-dark px-4 text-xs font-semibold text-white transition hover:bg-primary disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw
-              className={`h-3.5 w-3.5 ${auditRunning ? "animate-spin" : ""}`}
+              className={`h-3.5 w-3.5 ${runningAudit ? "animate-spin" : ""}`}
             />
-            {auditRunning ? "Running audit..." : "Run Audit"}
+            {runningAudit ? "Running Audit..." : "Run Audit"}
           </button>
+        </section>
+      )}
+
+      {auditError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"
+        >
+          {auditError}
         </div>
+      )}
 
-        <div className="p-4 sm:p-5">
-          {!projectId ? (
-            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 px-4 py-8 text-center">
-              <ShieldCheck className="mb-3 h-9 w-9 text-gray-300" />
-              <h3 className="text-sm font-semibold">
-                Select a project to get started
-              </h3>
-              <p className="mt-1 max-w-md text-xs leading-5 text-muted">
-                Open one of your saved projects to run an SEO audit and view its
-                real results here.
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate("/projects")}
-                className="mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition hover:bg-primary-dark"
-              >
-                Go to Projects
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : auditLoading ? (
-            <div className="flex min-h-32 items-center justify-center gap-3 text-sm text-muted">
-              <RefreshCw className="h-4 w-4 animate-spin text-primary" />
-              Loading audit results...
-            </div>
-          ) : (
-            <>
-              {auditError && (
-                <div
-                  role="alert"
-                  className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700"
-                >
-                  {auditError}
-                </div>
-              )}
-
-              {auditMessage && !auditError && (
-                <div
-                  role="status"
-                  className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-700"
-                >
-                  {auditMessage}
-                </div>
-              )}
-
-              {!audit ? (
-                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 px-4 py-8 text-center">
-                  <Clock3 className="mb-3 h-8 w-8 text-gray-300" />
-                  <h3 className="text-sm font-semibold">
-                    No audit results yet
-                  </h3>
-                  <p className="mt-1 max-w-md text-xs leading-5 text-muted">
-                    Run your first audit to check the website title, meta
-                    description, headings, images, and other on-page SEO
-                    signals.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* SCORE AND SUMMARY */}
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                    <div className="flex items-center gap-4 rounded-xl border border-gray-100 p-4">
-                      <div
-                        className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full"
-                        style={{
-                          background: `conic-gradient(#0bb568 ${
-                            Math.min(100, Math.max(0, score)) * 3.6
-                          }deg, #e4ecec 0deg)`,
-                        }}
-                      >
-                        <div className="flex h-[68px] w-[68px] flex-col items-center justify-center rounded-full bg-white">
-                          <strong
-                            className={`text-xl leading-6 ${scoreStyle.text}`}
-                          >
-                            {score}
-                          </strong>
-                          <span className="text-[10px] text-muted">
-                            out of 100
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="text-xs text-muted">Overall SEO score</p>
-                        <p
-                          className={`mt-1 text-sm font-bold ${scoreStyle.text}`}
-                        >
-                          {scoreStyle.label}
-                        </p>
-                        <span className="mt-2 inline-flex rounded-md bg-gray-100 px-2 py-1 text-[10px] font-medium capitalize text-gray-600">
-                          {audit.status}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl border border-gray-100 p-4">
-                        <p className="text-xs text-muted">Passed</p>
-                        <p className="mt-2 text-2xl font-bold text-emerald-600">
-                          {passedCount}
-                        </p>
-                        <p className="mt-1 text-[11px] text-muted">
-                          Checks passed
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-gray-100 p-4">
-                        <p className="text-xs text-muted">Warnings</p>
-                        <p className="mt-2 text-2xl font-bold text-amber-600">
-                          {warningCount}
-                        </p>
-                        <p className="mt-1 text-[11px] text-muted">
-                          Need review
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-gray-100 p-4">
-                        <p className="text-xs text-muted">Failed</p>
-                        <p className="mt-2 text-2xl font-bold text-red-600">
-                          {failedCount}
-                        </p>
-                        <p className="mt-1 text-[11px] text-muted">
-                          Issues found
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* AUDIT DETAILS */}
-                  <div className="mt-4 grid grid-cols-1 gap-2 rounded-lg bg-gray-50 p-3 text-xs sm:grid-cols-2">
-                    <div className="min-w-0">
-                      <span className="text-muted">Website</span>
-                      <p className="mt-1 break-all font-medium text-gray-700">
-                        {audit.websiteUrl}
-                      </p>
-                    </div>
-
-                    <div>
-                      <span className="text-muted">Last audited</span>
-                      <p className="mt-1 font-medium text-gray-700">
-                        {formatAuditDate(audit.completedAt || audit.createdAt)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <span className="text-muted">Pages analyzed</span>
-                      <p className="mt-1 font-medium text-gray-700">
-                        {audit.pagesCrawled ?? 0}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* REAL SEO CHECKS */}
-                  <div className="mt-5">
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className="text-sm font-semibold">
-                          SEO Check Results
-                        </h3>
-                        <p className="mt-0.5 text-[11px] text-muted">
-                          Findings from the latest audit
-                        </p>
-                      </div>
-
-                      <span className="rounded-md bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600">
-                        {checks.length} checks
-                      </span>
-                    </div>
-
-                    {checks.length === 0 ? (
-                      <p className="rounded-lg bg-gray-50 p-4 text-xs text-muted">
-                        No checks are available for this audit.
-                      </p>
-                    ) : (
-                      <div className="divide-y divide-gray-100 rounded-lg border border-gray-100">
-                        {visibleChecks.map((check, index) => {
-                          const style = getCheckStyle(check.status);
-
-                          return (
-                            <div
-                              key={`${check.name}-${index}`}
-                              className="flex items-start justify-between gap-3 p-3 transition hover:bg-gray-50/70"
-                            >
-                              <div className="flex min-w-0 items-start gap-3">
-                                <span
-                                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-50 text-sm font-bold ${style.icon}`}
-                                >
-                                  {style.symbol}
-                                </span>
-
-                                <div className="min-w-0">
-                                  <p className="text-xs font-semibold text-gray-800">
-                                    {check.name}
-                                  </p>
-                                  <p className="mt-1 break-words text-xs leading-5 text-muted">
-                                    {check.message}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="flex shrink-0 flex-col items-end gap-2">
-                                <span
-                                  className={`rounded-md px-2 py-1 text-[10px] font-semibold ${style.badge}`}
-                                >
-                                  {style.label}
-                                </span>
-                                <span className="text-[10px] text-muted">
-                                  {check.points ?? 0}/{check.maxPoints ?? 0}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {checks.length > 5 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowAllChecks((previous) => !previous)
-                        }
-                        className="mt-3 flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-dark"
-                      >
-                        {showAllChecks
-                          ? "Show fewer checks"
-                          : `View all ${checks.length} checks`}
-                        <ChevronDown
-                          className={`h-3.5 w-3.5 transition ${
-                            showAllChecks ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* KPI CARDS — existing mock data for now */}
+      {/* KPI CARDS */}
       <div className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {KPIS.map((kpi) => (
-          <button
-            key={kpi.id}
-            onClick={() => console.log(`Selected metric: ${kpi.title}`)}
-            className="flex items-start justify-between gap-3 rounded-xl border border-line bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold">{kpi.title}</h2>
-              <div className="mt-2 flex items-baseline gap-1">
-                <strong className="text-2xl leading-7">{kpi.value}</strong>
-                {kpi.unit && (
-                  <small className="text-xs text-muted">{kpi.unit}</small>
-                )}
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs font-medium text-primary">
-                {kpi.deltaDir === "up" ? "↑" : "↓"} {kpi.delta}
-                <span className="text-[11px] font-normal text-muted">
-                  {DELTA_LABEL}
-                </span>
-              </div>
-              <small className="mt-1 block text-[11px] text-gray-400">
-                {kpi.sub}
-              </small>
-            </div>
-
-            {kpi.viz.type === "ring" ? (
-              <div
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
-                style={{
-                  background: `conic-gradient(#0bb568 0deg ${
-                    kpi.viz.value * 3.6
-                  }deg, #e4ecec ${kpi.viz.value * 3.6}deg 360deg)`,
-                }}
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-sm font-bold">
-                  {kpi.viz.value}
-                </div>
-              </div>
-            ) : (
-              <svg viewBox="0 0 100 50" className="h-12 w-20 shrink-0 self-end">
-                <polyline
-                  fill="none"
-                  stroke={kpi.viz.color}
-                  strokeWidth="2.5"
-                  points={kpi.viz.points.map(([x, y]) => `${x},${y}`).join(" ")}
-                />
-              </svg>
-            )}
-          </button>
+        {kpis.map((kpi) => (
+          <MetricCard key={kpi.id} {...kpi} />
         ))}
       </div>
 
-      {/* TRAFFIC + AI INSIGHTS — existing data sources */}
+      {/* TRAFFIC + AI INSIGHTS */}
       <div className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-[1.9fr_1.15fr]">
         {/* TRAFFIC TREND */}
-        <div className="flex flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
+        <div className="flex min-h-[220px] flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex shrink-0 items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">Organic Traffic Trend</h2>
+
             <button
               onClick={pickPeriod}
               className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-primary/50"
@@ -574,121 +516,64 @@ export default function Dashboard() {
             </button>
           </div>
 
-          <div className="mt-3 flex min-h-[150px] flex-1 gap-3">
-            <div className="flex w-9 flex-col justify-between pb-6 text-[10px] text-gray-400">
-              {TRAFFIC_TREND.yLabels.map((label) => (
-                <span key={label}>{label}</span>
-              ))}
-            </div>
-
-            <div className="relative min-h-0 flex-1">
-              <div className="absolute left-0 top-0 w-full border-t border-dashed border-gray-200" />
-              <div className="absolute left-0 top-1/3 w-full border-t border-dashed border-gray-200" />
-              <div className="absolute left-0 top-2/3 w-full border-t border-dashed border-gray-200" />
-              <div className="absolute bottom-2 left-0 w-full border-t border-dashed border-gray-200" />
-
-              <svg
-                className="h-full max-h-[160px] w-full overflow-visible"
-                viewBox={`0 0 ${TRAFFIC_TREND.width} ${TRAFFIC_TREND.height}`}
-                preserveAspectRatio="none"
-              >
-                <defs>
-                  <linearGradient
-                    id="trafficGradient"
-                    x1="0"
-                    x2="0"
-                    y1="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="0%"
-                      stopColor={TRAFFIC_TREND.fill}
-                      stopOpacity=".28"
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor={TRAFFIC_TREND.fill}
-                      stopOpacity=".03"
-                    />
-                  </linearGradient>
-                </defs>
-
-                <path
-                  fill="url(#trafficGradient)"
-                  d={
-                    `M${TRAFFIC_TREND.points
-                      .map(([x, y]) => `${x} ${y}`)
-                      .join(" L")} ` +
-                    `L${TRAFFIC_TREND.width} ${
-                      TRAFFIC_TREND.points.at(-1)[1]
-                    } ` +
-                    `L${TRAFFIC_TREND.width} ${TRAFFIC_TREND.height} L0 ${TRAFFIC_TREND.height} Z`
-                  }
-                />
-
-                <polyline
-                  fill="none"
-                  stroke={TRAFFIC_TREND.stroke}
-                  strokeWidth="2.3"
-                  points={TRAFFIC_TREND.points
-                    .map(([x, y]) => `${x},${y}`)
-                    .join(" ")}
-                />
-
-                {TRAFFIC_TREND.points.map(([x, y], index, all) => (
-                  <circle
-                    key={`${x}-${y}`}
-                    cx={x}
-                    cy={y}
-                    r={index === all.length - 1 ? 4.5 : 3.5}
-                    fill={TRAFFIC_TREND.dot}
-                  />
-                ))}
-              </svg>
-
-              <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-gray-400">
-                {TRAFFIC_TREND.xLabels.map((label) => (
-                  <span key={label}>{label}</span>
-                ))}
-              </div>
-            </div>
-          </div>
+          <EmptyState>
+            Organic traffic data isn't available yet. Connect Google Search
+            Console and add a backend analytics endpoint to display real traffic
+            for this project.
+          </EmptyState>
         </div>
 
-        {/* AI INSIGHTS */}
+        {/* INSIGHTS */}
         <div className="flex flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex min-h-[30px] items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               <h2 className="text-sm font-semibold">AI Insights</h2>
-              <span className="flex h-4 w-4 items-center justify-center rounded-full border border-gray-400 text-[9px] text-muted">
+              <span
+                title="These recommendations are generated from the latest audit checks, not an AI model."
+                className="flex h-4 w-4 items-center justify-center rounded-full border border-gray-400 text-[9px] text-muted"
+              >
                 i
               </span>
             </div>
 
-            <button onClick={() => alert(ALERTS.viewAll)} className={VIEW_ALL}>
+            <button
+              onClick={() =>
+                alert(
+                  "These recommendations come from the latest available website audit.",
+                )
+              }
+              className={VIEW_ALL}
+            >
               View All <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
           <div className="mt-3 flex flex-1 flex-col justify-between rounded-lg bg-[#effcf7] p-3">
-            {INSIGHTS.map((insight) => (
-              <div
-                className="mb-2.5 flex items-start gap-2.5 text-[13px] leading-5 last:mb-0"
-                key={insight.text}
-              >
-                <span
-                  className={
-                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] " +
-                    (insight.done
-                      ? "bg-primary text-white"
-                      : "border-2 border-[#0caf6a] text-transparent")
-                  }
+            {auditReady ? (
+              insights.map((insight) => (
+                <div
+                  className="mb-2.5 flex items-start gap-2.5 text-[13px] leading-5 last:mb-0"
+                  key={insight.text}
                 >
-                  ✓
-                </span>
-                <span>{insight.text}</span>
-              </div>
-            ))}
+                  <span
+                    className={
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] " +
+                      (insight.done
+                        ? "bg-primary text-white"
+                        : "border-2 border-[#0caf6a] text-transparent")
+                    }
+                  >
+                    &#10003;
+                  </span>
+                  <span>{insight.text}</span>
+                </div>
+              ))
+            ) : (
+              <EmptyState>
+                Run an audit to see recommendations based on your website's
+                actual checks.
+              </EmptyState>
+            )}
           </div>
         </div>
       </div>
@@ -696,18 +581,24 @@ export default function Dashboard() {
       {/* BOTTOM GRID */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-3">
         {/* TOP PAGES */}
-        <div className="flex min-h-0 flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
+        <div className="flex min-h-[200px] min-w-0 flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex shrink-0 items-center justify-between gap-2">
             <h2 className="whitespace-nowrap text-sm font-semibold">
               Top Performing Pages
             </h2>
-            <button onClick={() => alert(ALERTS.viewAll)} className={VIEW_ALL}>
+
+            <button
+              onClick={() =>
+                alert("Page traffic data requires an analytics data source.")
+              }
+              className={VIEW_ALL}
+            >
               View All <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
           <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:thin]">
-            <table className="h-full w-full border-collapse">
+            <table className="w-full border-collapse">
               <thead>
                 <tr>
                   <th className="whitespace-nowrap bg-gray-50 px-2 py-1.5 text-left text-[11px] font-medium text-muted">
@@ -719,44 +610,66 @@ export default function Dashboard() {
                   <th className="whitespace-nowrap bg-gray-50 px-2 py-1.5 text-left text-[11px] font-medium text-muted">
                     Kw
                   </th>
-                  <th className="whitespace-nowrap bg-gray-50 px-2 py-1.5 text-left text-[11px] font-medium text-muted" />
+                  <th className="bg-gray-50 px-2 py-1.5" />
                 </tr>
               </thead>
+
               <tbody>
-                {TOP_PAGES.map((row) => (
-                  <tr key={row.page} className="hover:bg-gray-50/60">
-                    <td className="max-w-[110px] truncate border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-700">
-                      {row.page}
+                {auditReady && project ? (
+                  <tr className="hover:bg-gray-50/60">
+                    <td
+                      title={project.url}
+                      className="max-w-[110px] truncate border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-700"
+                    >
+                      {project.url}
                     </td>
-                    <td className="whitespace-nowrap border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-700">
-                      {formatCompact(row.traffic)}
+                    <td className="whitespace-nowrap border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-500">
+                      —
                     </td>
-                    <td className="whitespace-nowrap border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-700">
-                      {row.keywords}
+                    <td className="whitespace-nowrap border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-500">
+                      —
                     </td>
                     <td className="border-t border-gray-100 px-2 py-1 text-right text-muted">
                       <ArrowUpRight className="inline h-3.5 w-3.5" />
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  <tr>
+                    <td colSpan={4}>
+                      <EmptyState>
+                        {auditLoading
+                          ? "Loading audit data..."
+                          : "Page traffic and keyword counts aren't available from the current audit service."}
+                      </EmptyState>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
         {/* KEYWORD RANKINGS */}
-        <div className="flex min-h-0 flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
+        <div className="flex min-h-[200px] min-w-0 flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex shrink-0 items-center justify-between gap-2">
             <h2 className="whitespace-nowrap text-sm font-semibold">
               Keyword Rankings
             </h2>
-            <button onClick={() => alert(ALERTS.viewAll)} className={VIEW_ALL}>
+
+            <button
+              onClick={() =>
+                alert(
+                  "Connect a keyword-ranking data source to display real positions.",
+                )
+              }
+              className={VIEW_ALL}
+            >
               View All <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
           <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:thin]">
-            <table className="h-full w-full border-collapse">
+            <table className="w-full border-collapse">
               <thead>
                 <tr>
                   <th className="whitespace-nowrap bg-gray-50 px-2 py-1.5 text-left text-[11px] font-medium text-muted">
@@ -770,141 +683,87 @@ export default function Dashboard() {
                   </th>
                 </tr>
               </thead>
+
               <tbody>
-                {KEYWORD_RANKINGS.map((row) => (
-                  <tr key={row.keyword} className="hover:bg-gray-50/60">
-                    <td className="max-w-[110px] truncate border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-700">
-                      {row.keyword}
-                    </td>
-                    <td className="whitespace-nowrap border-t border-gray-100 px-2 py-1.5 text-[13px] text-gray-700">
-                      {row.position}
-                    </td>
-                    <td className="border-t border-gray-100 px-2 py-1">
-                      {row.change ? (
-                        <span
-                          className={
-                            "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium " +
-                            (row.change.dir === "up" ? PILL.good : PILL.bad)
-                          }
-                        >
-                          {row.change.dir === "up" ? "↑" : "↓"}{" "}
-                          {row.change.value}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                <tr>
+                  <td colSpan={3}>
+                    <EmptyState>
+                      Keyword positions and ranking changes aren't provided by
+                      the current audit service.
+                    </EmptyState>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* SEO ISSUES — REAL AUDIT DATA */}
-        <div className="flex min-h-0 flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
+        {/* SEO ISSUES */}
+        <div className="flex min-h-[200px] min-w-0 flex-col rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex shrink-0 items-center justify-between gap-2">
             <h2 className="whitespace-nowrap text-sm font-semibold">
               SEO Issues
             </h2>
 
-            {audit?.status === "completed" && (
-              <span className="text-[11px] text-muted">
-                {failedCount + warningCount} found
-              </span>
-            )}
+            <button
+              onClick={() => alert(ALERTS.viewAllIssues)}
+              className={VIEW_ALL}
+            >
+              View All <ArrowRight className="h-3.5 w-3.5" />
+            </button>
           </div>
 
-          <div className="mt-2 flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {!projectId ? (
-              <p className="py-6 text-center text-xs leading-5 text-muted">
-                Select a project to see its SEO issues.
-              </p>
-            ) : auditLoading ? (
-              <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted">
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                Loading SEO issues...
-              </div>
-            ) : audit?.status !== "completed" ? (
-              <div className="flex flex-1 flex-col items-center justify-center py-6 text-center">
-                <ShieldCheck className="mb-2 h-7 w-7 text-gray-300" />
-                <p className="text-xs font-medium text-gray-700">
-                  No completed audit
-                </p>
-                <p className="mt-1 text-[11px] leading-5 text-muted">
-                  Run an audit to find real on-page SEO issues.
-                </p>
-              </div>
-            ) : failedCount + warningCount === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center py-6 text-center">
-                <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-lg text-emerald-600">
-                  ✓
-                </span>
-                <p className="text-xs font-semibold text-gray-700">
-                  No issues found
-                </p>
-                <p className="mt-1 text-[11px] text-muted">
-                  All current checks passed.
-                </p>
-              </div>
-            ) : (
-              checks
-                .filter(
-                  (check) =>
-                    check.status === "failed" || check.status === "warning",
-                )
-                .slice(0, 8)
-                .map((issue, index) => {
-                  const style = getCheckStyle(issue.status);
+          <div className="mt-1.5 flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {auditReady && issues.length > 0 ? (
+              issues.map((issue, index) => {
+                const tone = getCheckTone(issue.status);
 
-                  return (
-                    <div
-                      key={`${issue.name}-${index}`}
-                      className="flex items-center gap-2.5 border-b border-gray-100 px-1 py-2.5 last:border-b-0"
+                return (
+                  <button
+                    key={`${issue.name}-${index}`}
+                    onClick={() => alert(`${issue.name}: ${issue.message}`)}
+                    className="flex items-center gap-2.5 border-b border-gray-100 px-1 py-[7px] text-left transition last:border-b-0 hover:bg-gray-50/60"
+                  >
+                    <span
+                      className={
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white " +
+                        (tone === "bad" ? "bg-[#e05252]" : "bg-[#e8a317]")
+                      }
                     >
-                      <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${style.badge}`}
-                      >
-                        {style.symbol}
-                      </span>
+                      !
+                    </span>
 
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <strong className="truncate text-[13px]">
-                          {issue.name}
-                        </strong>
-                        <span className="truncate text-xs text-muted">
-                          {issue.message}
-                        </span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <strong className="truncate text-[13px]">
+                        {issue.name}
+                      </strong>
+                      <span className="truncate text-xs text-muted">
+                        {issue.message}
                       </span>
+                    </span>
 
-                      <span
-                        className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${style.badge}`}
-                      >
-                        {style.label}
-                      </span>
-                    </div>
-                  );
-                })
+                    <span
+                      className={
+                        "inline-flex items-center whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium " +
+                        (PILL[tone] || PILL.warn)
+                      }
+                    >
+                      {getCheckLabel(issue.status)}
+                    </span>
+
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                  </button>
+                );
+              })
+            ) : (
+              <EmptyState>
+                {auditLoading
+                  ? "Loading audit checks..."
+                  : !auditReady
+                    ? "Run an audit to see actual SEO issues."
+                    : "No failed or warning checks were found in the latest audit."}
+              </EmptyState>
             )}
-
-            {audit?.status === "completed" &&
-              failedCount + warningCount > 8 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    document
-                      .getElementById("seo-audit-results")
-                      ?.scrollIntoView({
-                        behavior: "smooth",
-                        block: "start",
-                      })
-                  }
-                  className="mt-3 flex items-center justify-center gap-1 text-xs font-semibold text-primary hover:text-primary-dark"
-                >
-                  View all issues
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              )}
           </div>
         </div>
       </div>
@@ -918,6 +777,7 @@ export default function Dashboard() {
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-md">
               <Sparkles className="h-5 w-5" />
             </span>
+
             <div>
               <h2 className="text-base font-bold">{UPGRADE_CTA.title}</h2>
               <p className="mt-0.5 text-xs text-muted">{UPGRADE_CTA.text}</p>
