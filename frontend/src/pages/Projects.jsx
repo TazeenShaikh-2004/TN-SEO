@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/tn-seo-pages.css";
 import { apiRequest } from "../services/api";
+
+const ACTIVE_PROJECT_KEY = "tnseo_active_project";
 
 const favoriteStyles = [
   "from-green-400 to-green-800",
@@ -29,12 +31,14 @@ function Icon({ children, className = "h-4 w-4", ...props }) {
 }
 
 // Accept domains with or without https://.
-// Reject malformed URLs and local/private development hostnames.
 function validateWebsiteUrl(value) {
   const input = value.trim();
 
   if (!input) {
-    return { valid: false, message: "Please enter your website URL." };
+    return {
+      valid: false,
+      message: "Please enter your website URL.",
+    };
   }
 
   if (/\s/.test(input)) {
@@ -57,14 +61,8 @@ function validateWebsiteUrl(value) {
     };
   }
 
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    return {
-      valid: false,
-      message: "Only HTTP and HTTPS website URLs are supported.",
-    };
-  }
-
   if (
+    !["http:", "https:"].includes(parsed.protocol) ||
     !parsed.hostname.includes(".") ||
     parsed.hostname.startsWith(".") ||
     parsed.hostname.endsWith(".") ||
@@ -90,7 +88,10 @@ function validateWebsiteUrl(value) {
     };
   }
 
-  return { valid: true, url: parsed.toString() };
+  return {
+    valid: true,
+    url: parsed.toString(),
+  };
 }
 
 function getFriendlyError(error) {
@@ -102,6 +103,14 @@ function getFriendlyError(error) {
 
   if (error?.status === 401) {
     return "Your session may have expired. Please log in again.";
+  }
+
+  if (error?.status === 403) {
+    return "You do not have permission to perform this action.";
+  }
+
+  if (error?.status === 404) {
+    return error.message || "The requested project could not be found.";
   }
 
   return error?.message || "Something went wrong. Please try again.";
@@ -135,7 +144,7 @@ function StatusBadge({ project }) {
   );
 }
 
-function ProjectCard({ project, onApply, onDelete, onOpen }) {
+function ProjectCard({ project, active, onApply, onDelete, onOpen }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -148,7 +157,9 @@ function ProjectCard({ project, onApply, onDelete, onOpen }) {
     };
 
     const closeOnEscape = (event) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", closeOnOutside);
@@ -168,7 +179,7 @@ function ProjectCard({ project, onApply, onDelete, onOpen }) {
             favoriteStyles[(project.fav || 0) % favoriteStyles.length]
           }`}
         >
-          {project.name.charAt(0).toUpperCase()}
+          {project.name?.charAt(0)?.toUpperCase() || "P"}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -176,10 +187,23 @@ function ProjectCard({ project, onApply, onDelete, onOpen }) {
             <h2 className="break-words text-sm font-semibold text-slate-900">
               {project.name}
             </h2>
+
             <StatusBadge project={project} />
+
+            {active && (
+              <span className="rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-bold uppercase text-green-800">
+                Active
+              </span>
+            )}
           </div>
 
           <p className="mt-1 truncate text-xs text-slate-400">{project.url}</p>
+
+          {project.keyword && (
+            <p className="mt-1 truncate text-xs text-slate-500">
+              Primary keyword: {project.keyword}
+            </p>
+          )}
         </div>
 
         <div className="relative shrink-0" data-project-menu="">
@@ -234,7 +258,7 @@ function ProjectCard({ project, onApply, onDelete, onOpen }) {
                 <Icon className="h-3.5 w-3.5">
                   <path d="M20 6 9 17l-5-5" />
                 </Icon>
-                Apply
+                Apply Project
               </button>
 
               <button
@@ -280,12 +304,16 @@ function ProjectModal({ onClose, onCreate, saving }) {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === "Escape" && !saving) onClose();
+      if (event.key === "Escape" && !saving) {
+        onClose();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
 
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [onClose, saving]);
 
   function handleSubmit(event) {
@@ -332,7 +360,9 @@ function ProjectModal({ onClose, onCreate, saving }) {
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-green-950/55 p-5 backdrop-blur-sm"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
+        if (event.target === event.currentTarget && !saving) {
+          onClose();
+        }
       }}
     >
       <form
@@ -355,7 +385,6 @@ function ProjectModal({ onClose, onCreate, saving }) {
           Enter your website details to start tracking SEO performance.
         </p>
 
-        {/* Validation errors appear above the form fields. */}
         {validationError && (
           <div
             role="alert"
@@ -396,7 +425,10 @@ function ProjectModal({ onClose, onCreate, saving }) {
             onBlur={() => {
               if (url.trim()) {
                 const result = validateWebsiteUrl(url);
-                if (result.valid) setUrl(result.url);
+
+                if (result.valid) {
+                  setUrl(result.url);
+                }
               }
             }}
             placeholder="https://example.com"
@@ -450,6 +482,14 @@ export default function Projects() {
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(() => {
+    try {
+      return localStorage.getItem(ACTIVE_PROJECT_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+
   const [modalOpen, setModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -458,49 +498,94 @@ export default function Projects() {
 
   const toastTimer = useRef(null);
 
-  useEffect(() => {
-    return () => window.clearTimeout(toastTimer.current);
+  const saveActiveProject = useCallback((projectId) => {
+    setActiveProjectId(projectId);
+
+    try {
+      if (projectId) {
+        localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+      } else {
+        localStorage.removeItem(ACTIVE_PROJECT_KEY);
+      }
+    } catch {
+      // The selected project still works for this page session.
+    }
   }, []);
 
   useEffect(() => {
-    let active = true;
-
-    async function loadProjects() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const data = await apiRequest("/projects");
-
-        if (active) {
-          const savedProjects = (data.projects || []).map((project, index) => ({
-            ...project,
-            fav: index % favoriteStyles.length,
-          }));
-
-          setProjects(savedProjects);
-        }
-      } catch (err) {
-        if (active) setError(getFriendlyError(err));
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    loadProjects();
-
     return () => {
-      active = false;
+      window.clearTimeout(toastTimer.current);
     };
   }, []);
 
-  function showToast(message) {
+  const showToast = useCallback((message) => {
     window.clearTimeout(toastTimer.current);
     setToastMessage(message);
 
     toastTimer.current = window.setTimeout(() => {
       setToastMessage("");
     }, 2600);
+  }, []);
+
+  const loadProjects = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await apiRequest("/projects");
+
+      const savedProjects = (data.projects || []).map((project, index) => ({
+        ...project,
+        fav: index % favoriteStyles.length,
+      }));
+
+      setProjects(savedProjects);
+
+      // Keep the selected project if it still exists.
+      const storedId = (() => {
+        try {
+          return localStorage.getItem(ACTIVE_PROJECT_KEY) || "";
+        } catch {
+          return "";
+        }
+      })();
+
+      const selectedProject = savedProjects.find(
+        (project) => project._id === storedId,
+      );
+
+      // If there is no saved selection, use the most recent project.
+      const defaultProject = selectedProject || savedProjects[0];
+
+      if (defaultProject) {
+        saveActiveProject(defaultProject._id);
+      } else {
+        saveActiveProject("");
+      }
+    } catch (err) {
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [saveActiveProject]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  function openProject(project) {
+    if (!project?._id) return;
+
+    saveActiveProject(project._id);
+
+    navigate(`/dashboard?projectId=${encodeURIComponent(project._id)}`);
+  }
+
+  function applyProject(project) {
+    if (!project?._id) return;
+
+    saveActiveProject(project._id);
+    showToast(`"${project.name}" is now your active project`);
   }
 
   async function createProject(details) {
@@ -508,11 +593,14 @@ export default function Projects() {
     setError("");
 
     try {
-      // apiRequest handles JSON.stringify internally.
       const data = await apiRequest("/projects", {
         method: "POST",
         body: details,
       });
+
+      if (!data.project?._id) {
+        throw new Error("The server did not return the created project.");
+      }
 
       const createdProject = {
         ...data.project,
@@ -520,13 +608,19 @@ export default function Projects() {
       };
 
       setProjects((current) => [createdProject, ...current]);
+
+      saveActiveProject(createdProject._id);
       setModalOpen(false);
+
       showToast(`Project "${createdProject.name}" created`);
 
-      navigate("/dashboard", { replace: true });
+      // Redirect to the dashboard using the newly created project.
+      navigate(
+        `/dashboard?projectId=${encodeURIComponent(createdProject._id)}`,
+        { replace: true },
+      );
     } catch (err) {
       setError(getFriendlyError(err));
-      // Keep the modal open so the user can correct their input.
     } finally {
       setSaving(false);
     }
@@ -546,17 +640,27 @@ export default function Projects() {
     setError("");
 
     try {
-      await apiRequest(`/projects/${id}`, {
+      await apiRequest(`/projects/${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
 
       const updatedProjects = projects.filter((item) => item._id !== id);
 
       setProjects(updatedProjects);
-      showToast("Project deleted");
 
-      if (updatedProjects.length === 0) {
-        navigate("/projects", { replace: true });
+      // If the active project was deleted, select the next available one.
+      if (activeProjectId === id) {
+        const nextProject = updatedProjects[0];
+
+        saveActiveProject(nextProject?._id || "");
+
+        if (nextProject) {
+          showToast("Project deleted. Switched to another project.");
+        } else {
+          showToast("Project deleted");
+        }
+      } else {
+        showToast("Project deleted");
       }
     } catch (err) {
       setError(getFriendlyError(err));
@@ -573,7 +677,8 @@ export default function Projects() {
                 <Icon className="h-6 w-6 text-green-600">
                   <path d="M3 6h6l2 2h10v11H3z" />
                 </Icon>
-                Projects<span className="text-green-600">.</span>
+                Projects
+                <span className="text-green-600">.</span>
               </h1>
 
               <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-[13px]">
@@ -603,6 +708,13 @@ export default function Projects() {
               className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {error}
+              <button
+                type="button"
+                onClick={loadProjects}
+                className="ml-2 font-semibold underline"
+              >
+                Try again
+              </button>
             </div>
           )}
 
@@ -650,11 +762,10 @@ export default function Projects() {
                 <ProjectCard
                   key={project._id}
                   project={project}
-                  onApply={(item) =>
-                    showToast(`Project "${item.name}" applied`)
-                  }
+                  active={project._id === activeProjectId}
+                  onApply={applyProject}
                   onDelete={deleteProject}
-                  onOpen={() => navigate("/dashboard")}
+                  onOpen={openProject}
                 />
               ))}
             </section>
@@ -683,9 +794,7 @@ export default function Projects() {
 
             <button
               type="button"
-              onClick={() =>
-                showToast("AI optimization queued for all projects")
-              }
+              onClick={() => showToast("AI optimization is not connected yet.")}
               className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700"
             >
               Optimize with AI <span aria-hidden="true">→</span>
@@ -705,6 +814,15 @@ export default function Projects() {
           onCreate={createProject}
           saving={saving}
         />
+      )}
+
+      {modalOpen && error && (
+        <div
+          role="alert"
+          className="fixed bottom-20 right-5 z-[60] max-w-sm rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg"
+        >
+          {error}
+        </div>
       )}
 
       {toastMessage && (
