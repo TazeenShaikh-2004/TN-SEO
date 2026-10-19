@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createProject as createProjectRequest, deleteProject as deleteProjectRequest, getProjects } from '../services/projectService';
 import '../styles/tn-seo-pages.css';
 
 const favoriteStyles = [
@@ -187,11 +188,32 @@ function ProjectModal({ onClose, onCreate }) {
 export default function Projects() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const toastTimer = useRef(null);
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+  useEffect(() => {
+    let active = true;
+
+    getProjects()
+      .then((data) => {
+        if (active) setProjects(data.projects || []);
+      })
+      .catch((error) => {
+        if (active) setLoadError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function showToast(message) {
     window.clearTimeout(toastTimer.current);
@@ -199,29 +221,28 @@ export default function Projects() {
     toastTimer.current = window.setTimeout(() => setToastMessage(''), 2600);
   }
 
-  function createProject(details) {
-    const normalizedUrl = /^https?:\/\//i.test(details.url) ? details.url : `https://${details.url}`;
-    setProjects((current) => [{
-      ...details,
-      id: crypto.randomUUID(),
-      url: normalizedUrl,
-      score: 0,
-      keywords: 0,
-      pages: 0,
-      issues: 0,
-      status: 'paused',
-      updated: 'just now',
-      fav: current.length % favoriteStyles.length,
-    }, ...current]);
-    setModalOpen(false);
-    showToast(`Project "${details.name}" created`);
+  async function createProject(details) {
+    try {
+      const data = await createProjectRequest({ ...details, url: details.url.trim() });
+      setProjects((current) => [data.project, ...current]);
+      setModalOpen(false);
+      showToast(`Project "${data.project.name}" created`);
+    } catch (error) {
+      showToast(error.message);
+    }
   }
 
-  function deleteProject(id) {
+  async function deleteProject(id) {
     const project = projects.find((item) => item.id === id);
     if (!project || !window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
-    setProjects((current) => current.filter((item) => item.id !== id));
-    showToast('Project deleted');
+
+    try {
+      await deleteProjectRequest(id);
+      setProjects((current) => current.filter((item) => item.id !== id));
+      showToast('Project deleted');
+    } catch (error) {
+      showToast(error.message);
+    }
   }
 
   return (
@@ -243,7 +264,24 @@ export default function Projects() {
             </button>
           </section>
 
-          {projects.length === 0 ? (
+          {loading ? (
+            <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm">
+              <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-[3px] border-green-100 border-t-green-600" />
+              <p className="text-[13px] text-slate-500">Loading your projects…</p>
+            </section>
+          ) : loadError ? (
+            <section className="rounded-xl border border-red-100 bg-white px-6 py-14 text-center shadow-sm">
+              <div className="mx-auto mb-5 grid h-[68px] w-[68px] place-items-center rounded-full border border-red-100 bg-red-50 text-red-500">
+                <Icon className="h-8 w-8" strokeWidth="1.6"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.5" /></Icon>
+              </div>
+              <h2 className="text-xl font-bold">Couldn't load projects</h2>
+              <p className="mx-auto mb-5 mt-2 max-w-sm text-[13px] leading-6 text-slate-600">{loadError}</p>
+              <button type="button" onClick={() => window.location.reload()} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700">
+                <Icon className="h-4 w-4"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" /></Icon>
+                Try Again
+              </button>
+            </section>
+          ) : projects.length === 0 ? (
             <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm sm:py-16">
               <div className="mx-auto mb-5 grid h-[68px] w-[68px] place-items-center rounded-full border border-green-100 bg-green-50 text-green-500">
                 <Icon className="h-8 w-8" strokeWidth="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Icon>
