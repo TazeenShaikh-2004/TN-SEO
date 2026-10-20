@@ -1,85 +1,117 @@
+
 import mongoose from "mongoose";
 
 const projectSchema = new mongoose.Schema(
-    {
-        user: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: true,
-            index: true, // fast lookup of "my projects"
-        },
-        name: {
-            type: String,
-            required: [true, "Project name is required."],
-            trim: true,
-            minlength: [2, "Project name must be at least 2 characters."],
-            maxlength: [120, "Project name must be at most 120 characters."],
-        },
-        url: {
-            type: String,
-            required: [true, "Website URL is required."],
-            trim: true,
-            maxlength: [500, "Website URL must be at most 500 characters."],
-        },
-        keyword: {
-            type: String,
-            trim: true,
-            default: "—",
-            maxlength: [200, "Primary keyword must be at most 200 characters."],
-        },
-        status: {
-            type: String,
-            enum: ["active", "paused", "issues"],
-            default: "paused", // a freshly created project has not been audited yet
-        },
-        score: {
-            type: Number,
-            default: 0,
-            min: 0,
-            max: 100,
-        },
-        keywords: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        pages: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        issues: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        fav: {
-            type: Number,
-            default: 0, // index into the card gradient palette
-        },
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
     },
-    { timestamps: true } // adds createdAt + updatedAt
+
+    name: {
+      type: String,
+      required: [true, "Project name is required."],
+      trim: true,
+      minlength: [2, "Project name must be at least 2 characters."],
+      maxlength: [120, "Project name must be at most 120 characters."],
+    },
+
+    url: {
+      type: String,
+      required: [true, "Website URL is required."],
+      trim: true,
+      maxlength: [500, "Website URL must be at most 500 characters."],
+    },
+
+    keyword: {
+      type: String,
+      required: [true, "Primary keyword is required."],
+      trim: true,
+      maxlength: [200, "Primary keyword must be at most 200 characters."],
+    },
+
+    status: {
+      type: String,
+      enum: ["pending", "crawling", "completed", "failed"],
+      default: "pending",
+    },
+
+    lastCrawledAt: {
+      type: Date,
+      default: null,
+    },
+
+    pageCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    crawlData: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    // Dashboard values: update these only from real audit data.
+    score: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
+    keywords: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    issues: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    fav: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  {
+    timestamps: true,
+  }
 );
 
-// One project per website per user.
-projectSchema.index({ user: 1, url: 1 }, { unique: true });
+// Avoid duplicate projects for the same user and URL.
+projectSchema.index(
+  { userId: 1, url: 1 },
+  { unique: true }
+);
 
-/** Public representation sent to the frontend. */
+// Standard response format for the frontend.
 projectSchema.methods.toPublic = function () {
-    return {
-        id: this._id.toString(),
-        name: this.name,
-        url: this.url,
-        keyword: this.keyword,
-        status: this.status,
-        score: this.score,
-        keywords: this.keywords,
-        pages: this.pages,
-        issues: this.issues,
-        fav: this.fav,
-        updatedAt: this.updatedAt,
-        createdAt: this.createdAt,
-    };
+  return {
+    _id: this._id.toString(),
+    id: this._id.toString(),
+    name: this.name,
+    url: this.url,
+    keyword: this.keyword,
+    status: this.status,
+    score: this.score,
+    keywords: this.keywords,
+    pages: this.pageCount,
+    pageCount: this.pageCount,
+    issues: this.issues,
+    fav: this.fav,
+    lastCrawledAt: this.lastCrawledAt,
+    createdAt: this.createdAt,
+    updatedAt: this.updatedAt,
+  };
 };
 
-export default mongoose.model("Project", projectSchema);
+const Project = mongoose.model("Project", projectSchema);
+
+export default Project;

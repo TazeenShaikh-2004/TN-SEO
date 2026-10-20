@@ -10,6 +10,18 @@
 **/node_modules/
 **/dist/
 **/dist-ssr/
+﻿# Environment variables and secrets
+.env
+.env.*
+!.env.example
+backend/.env
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
 
 # Logs
 *.log
