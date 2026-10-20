@@ -5,6 +5,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/authRoutes.js";
+import projectRoutes from "./routes/projectRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { connectDB, disconnectDB } from "./config/database.js";
 import projectRoutes from "./routes/projectRoutes.js";
@@ -49,7 +50,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 app.use("/api/auth", authRoutes);
-app.use("/api/audits", auditRoutes);
 app.use("/api/projects", projectRoutes);
 
 app.use(notFound);

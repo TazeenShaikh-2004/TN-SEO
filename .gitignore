@@ -1,3 +1,15 @@
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies and generated output
+**/node_modules/
+**/dist/
+**/dist-ssr/
 ﻿# Environment variables and secrets
 .env
 .env.*
@@ -14,3 +26,11 @@ build/
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

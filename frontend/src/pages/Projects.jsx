@@ -30,7 +30,6 @@ function Icon({ children, className = "h-4 w-4", ...props }) {
   );
 }
 
-// Accept domains with or without https://.
 function validateWebsiteUrl(value) {
   const input = value.trim();
 
@@ -48,7 +47,9 @@ function validateWebsiteUrl(value) {
     };
   }
 
-  const normalized = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+  const normalized = /^https?:\/\//i.test(input)
+    ? input
+    : `https://${input}`;
 
   let parsed;
 
@@ -71,7 +72,8 @@ function validateWebsiteUrl(value) {
   ) {
     return {
       valid: false,
-      message: "Enter a valid public website URL, such as https://example.com.",
+      message:
+        "Enter a valid public website URL, such as https://example.com.",
     };
   }
 
@@ -98,7 +100,8 @@ function getFriendlyError(error) {
   if (error?.status === 400) {
     return error.message === "Invalid request body"
       ? "Please check the project name, website URL, and primary keyword."
-      : error.message || "Please check the project details and try again.";
+      : error.message ||
+          "Please check the project details and try again.";
   }
 
   if (error?.status === 401) {
@@ -197,7 +200,9 @@ function ProjectCard({ project, active, onApply, onDelete, onOpen }) {
             )}
           </div>
 
-          <p className="mt-1 truncate text-xs text-slate-400">{project.url}</p>
+          <p className="mt-1 truncate text-xs text-slate-400">
+            {project.url}
+          </p>
 
           {project.keyword && (
             <p className="mt-1 truncate text-xs text-slate-500">
@@ -489,7 +494,6 @@ export default function Projects() {
       return "";
     }
   });
-
   const [modalOpen, setModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -541,7 +545,6 @@ export default function Projects() {
 
       setProjects(savedProjects);
 
-      // Keep the selected project if it still exists.
       const storedId = (() => {
         try {
           return localStorage.getItem(ACTIVE_PROJECT_KEY) || "";
@@ -554,7 +557,6 @@ export default function Projects() {
         (project) => project._id === storedId,
       );
 
-      // If there is no saved selection, use the most recent project.
       const defaultProject = selectedProject || savedProjects[0];
 
       if (defaultProject) {
@@ -608,13 +610,10 @@ export default function Projects() {
       };
 
       setProjects((current) => [createdProject, ...current]);
-
       saveActiveProject(createdProject._id);
       setModalOpen(false);
-
       showToast(`Project "${createdProject.name}" created`);
 
-      // Redirect to the dashboard using the newly created project.
       navigate(
         `/dashboard?projectId=${encodeURIComponent(createdProject._id)}`,
         { replace: true },
@@ -645,13 +644,10 @@ export default function Projects() {
       });
 
       const updatedProjects = projects.filter((item) => item._id !== id);
-
       setProjects(updatedProjects);
 
-      // If the active project was deleted, select the next available one.
       if (activeProjectId === id) {
         const nextProject = updatedProjects[0];
-
         saveActiveProject(nextProject?._id || "");
 
         if (nextProject) {
@@ -682,8 +678,8 @@ export default function Projects() {
               </h1>
 
               <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-[13px]">
-                Manage and monitor all your SEO projects, audits and rankings in
-                one place.
+                Manage and monitor all your SEO projects, audits and rankings
+                in one place.
               </p>
             </div>
 
@@ -720,7 +716,10 @@ export default function Projects() {
 
           {loading ? (
             <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm">
-              <p className="text-sm text-slate-500">Loading your projects...</p>
+              <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-[3px] border-green-100 border-t-green-600" />
+              <p className="text-[13px] text-slate-500">
+                Loading your projects…
+              </p>
             </section>
           ) : projects.length === 0 ? (
             <section className="rounded-xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm sm:py-16">
@@ -776,25 +775,33 @@ export default function Projects() {
               <Icon className="h-6 w-6">
                 <circle cx="12" cy="12" r="9" />
                 <circle cx="12" cy="12" r="5" />
-                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="1.5"
+                  fill="currentColor"
+                />
               </Icon>
             </div>
 
             <div className="min-w-[190px] flex-1">
               <h2 className="text-base font-bold text-green-950">
-                Boost <span className="text-green-600">all your projects</span>{" "}
+                Boost{" "}
+                <span className="text-green-600">all your projects</span>{" "}
                 with AI
               </h2>
 
               <p className="mt-0.5 text-xs leading-5 text-slate-600">
-                Get personalized recommendations to improve every project's SEO
-                and rank higher.
+                Get personalized recommendations to improve every project's
+                SEO and rank higher.
               </p>
             </div>
 
             <button
               type="button"
-              onClick={() => showToast("AI optimization is not connected yet.")}
+              onClick={() =>
+                showToast("AI optimization is not connected yet.")
+              }
               className="rounded-lg bg-green-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-green-700"
             >
               Optimize with AI <span aria-hidden="true">→</span>
