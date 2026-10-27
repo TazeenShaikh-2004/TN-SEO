@@ -1,4 +1,27 @@
+import dns from "node:dns";
 import mongoose from "mongoose";
+
+/**
+ * Some Node builds on Windows report the loopback address as the only DNS
+ * server. Nothing listens there, so every lookup fails with ECONNREFUSED and
+ * MongoDB's SRV resolution never succeeds. Detect that case and fall back to
+ * public resolvers before connecting.
+ */
+const LOOPBACK_DNS = new Set(["127.0.0.1", "127.0.0.53", "::1", "0.0.0.0"]);
+
+function ensureUsableDns() {
+    const servers = dns.getServers();
+    if (!servers.some((server) => LOOPBACK_DNS.has(server))) return;
+
+    const usable = servers.filter((server) => !LOOPBACK_DNS.has(server));
+    const fallback = [...new Set([...usable, "8.8.8.8", "1.1.1.1", "192.168.0.1"])];
+
+    dns.setServers(fallback);
+    console.warn(
+        `[db] DNS resolver ${servers.join(", ")} is unusable - switched to ${dns.getServers().join(", ")}`
+    );
+}
+
 
 /**
  * MongoDB connection.
@@ -10,6 +33,8 @@ import mongoose from "mongoose";
 let memoryServer = null;
 
 export async function connectDB() {
+    ensureUsableDns();
+
     let uri = process.env.MONGO_URI || process.env.MONGODB_URI;
     let mongoUri = uri;
 
