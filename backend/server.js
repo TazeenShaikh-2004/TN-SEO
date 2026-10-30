@@ -8,7 +8,6 @@ import authRoutes from "./routes/authRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { connectDB, disconnectDB } from "./config/database.js";
-import projectRoutes from "./routes/projectRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

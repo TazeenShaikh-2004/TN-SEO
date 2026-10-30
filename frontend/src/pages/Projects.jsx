@@ -3,8 +3,6 @@ import { useNavigate } from "react-router-dom";
 import "../styles/tn-seo-pages.css";
 import { apiRequest } from "../services/api";
 
-const ACTIVE_PROJECT_KEY = "tnseo_active_project";
-
 const favoriteStyles = [
   "from-green-400 to-green-800",
   "from-blue-400 to-blue-700",
@@ -251,20 +249,22 @@ function ProjectCard({ project, active, onApply, onDelete, onOpen }) {
               role="menu"
               className="absolute right-0 top-10 z-50 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onApply(project);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-green-50 hover:text-green-700"
-              >
-                <Icon className="h-3.5 w-3.5">
-                  <path d="M20 6 9 17l-5-5" />
-                </Icon>
-                Apply Project
-              </button>
+              {!active && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onApply(project);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-green-50 hover:text-green-700"
+                >
+                  <Icon className="h-3.5 w-3.5">
+                    <path d="M20 6 9 17l-5-5" />
+                  </Icon>
+                  Apply Project
+                </button>
+              )}
 
               <button
                 type="button"
@@ -487,13 +487,7 @@ export default function Projects() {
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
-  const [activeProjectId, setActiveProjectId] = useState(() => {
-    try {
-      return localStorage.getItem(ACTIVE_PROJECT_KEY) || "";
-    } catch {
-      return "";
-    }
-  });
+  const [activeProjectId, setActiveProjectId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -502,18 +496,22 @@ export default function Projects() {
 
   const toastTimer = useRef(null);
 
-  const saveActiveProject = useCallback((projectId) => {
-    setActiveProjectId(projectId);
+  /**
+   * Persists the active project to the account (PATCH /projects/:id/activate),
+   * so the selection follows the user across browsers - not just this device.
+   * An empty id means "nothing to activate"; the server already clears the
+   * pointer when the active project is deleted.
+   */
+  const saveActiveProject = useCallback(async (projectId) => {
+    const next = projectId || "";
 
-    try {
-      if (projectId) {
-        localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
-      } else {
-        localStorage.removeItem(ACTIVE_PROJECT_KEY);
-      }
-    } catch {
-      // The selected project still works for this page session.
+    if (next) {
+      await apiRequest(`/projects/${encodeURIComponent(next)}/activate`, {
+        method: "PATCH",
+      });
     }
+
+    setActiveProjectId(next);
   }, []);
 
   useEffect(() => {
@@ -545,24 +543,24 @@ export default function Projects() {
 
       setProjects(savedProjects);
 
-      const storedId = (() => {
-        try {
-          return localStorage.getItem(ACTIVE_PROJECT_KEY) || "";
-        } catch {
-          return "";
-        }
-      })();
-
-      const selectedProject = savedProjects.find(
-        (project) => project._id === storedId,
+      // The server is the source of truth for which project is active.
+      const serverActiveId = data.activeProjectId || "";
+      const serverHasIt = savedProjects.some(
+        (project) => project._id === serverActiveId,
       );
 
-      const defaultProject = selectedProject || savedProjects[0];
-
-      if (defaultProject) {
-        saveActiveProject(defaultProject._id);
+      if (serverHasIt) {
+        setActiveProjectId(serverActiveId);
+      } else if (savedProjects[0]) {
+        // First run, or the active project was deleted in another session.
+        // Establish a default so the choice sticks from now on.
+        try {
+          await saveActiveProject(savedProjects[0]._id);
+        } catch {
+          setActiveProjectId(savedProjects[0]._id);
+        }
       } else {
-        saveActiveProject("");
+        setActiveProjectId("");
       }
     } catch (err) {
       setError(getFriendlyError(err));
@@ -575,19 +573,27 @@ export default function Projects() {
     loadProjects();
   }, [loadProjects]);
 
-  function openProject(project) {
+  async function openProject(project) {
     if (!project?._id) return;
 
-    saveActiveProject(project._id);
+    try {
+      await saveActiveProject(project._id);
+    } catch {
+      // Opening still works even if persisting the selection failed.
+    }
 
     navigate(`/dashboard?projectId=${encodeURIComponent(project._id)}`);
   }
 
-  function applyProject(project) {
+  async function applyProject(project) {
     if (!project?._id) return;
 
-    saveActiveProject(project._id);
-    showToast(`"${project.name}" is now your active project`);
+    try {
+      await saveActiveProject(project._id);
+      showToast(`"${project.name}" is now your active project`);
+    } catch (err) {
+      setError(getFriendlyError(err));
+    }
   }
 
   async function createProject(details) {
@@ -610,9 +616,12 @@ export default function Projects() {
       };
 
       setProjects((current) => [createdProject, ...current]);
-      saveActiveProject(createdProject._id);
       setModalOpen(false);
       showToast(`Project "${createdProject.name}" created`);
+
+      // The project already exists, so a failed activation must not block
+      // creation - Dashboard also receives the id in the URL.
+      await saveActiveProject(createdProject._id).catch(() => {});
 
       navigate(
         `/dashboard?projectId=${encodeURIComponent(createdProject._id)}`,
@@ -648,7 +657,14 @@ export default function Projects() {
 
       if (activeProjectId === id) {
         const nextProject = updatedProjects[0];
-        saveActiveProject(nextProject?._id || "");
+
+        // The server already clears the pointer on delete; re-activate a
+        // survivor so the selection stays meaningful.
+        try {
+          await saveActiveProject(nextProject?._id || "");
+        } catch {
+          setActiveProjectId(nextProject?._id || "");
+        }
 
         if (nextProject) {
           showToast("Project deleted. Switched to another project.");

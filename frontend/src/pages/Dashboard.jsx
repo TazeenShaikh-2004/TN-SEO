@@ -24,8 +24,6 @@ import { ALERTS } from "../data/site.js";
 import { apiRequest } from "../services/api.js";
 import { auditService } from "../services/auditService.js";
 
-const ACTIVE_PROJECT_KEY = "tn-seo-active-project-id";
-
 function getErrorMessage(error) {
   if (error?.status === 401) {
     return "Your session has expired. Please log in again.";
@@ -210,20 +208,31 @@ export default function Dashboard() {
         if (savedProjects.length === 0) {
           setProject(null);
           setAudit(null);
-          localStorage.removeItem(ACTIVE_PROJECT_KEY);
           return;
         }
 
-        const savedProjectId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+        // The server is the source of truth for the active project.
+        const serverActiveId = data.activeProjectId || "";
 
         const selectedProject =
           savedProjects.find((item) => item._id === projectIdFromUrl) ||
-          savedProjects.find((item) => item._id === savedProjectId) ||
+          savedProjects.find((item) => item._id === serverActiveId) ||
           savedProjects[0];
 
         setProject(selectedProject);
 
-        localStorage.setItem(ACTIVE_PROJECT_KEY, selectedProject._id);
+        // Deep-linked to a project that isn't the active one - persist it so
+        // the selection follows the account, not this browser.
+        if (
+          projectIdFromUrl &&
+          selectedProject._id === projectIdFromUrl &&
+          projectIdFromUrl !== serverActiveId
+        ) {
+          apiRequest(
+            `/projects/${encodeURIComponent(projectIdFromUrl)}/activate`,
+            { method: "PATCH" },
+          ).catch((err) => setPageError(getErrorMessage(err)));
+        }
 
         // Keep the existing dashboard URL style while adding the ID.
         if (projectIdFromUrl !== selectedProject._id) {
@@ -278,7 +287,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (project?._id) {
-      localStorage.setItem(ACTIVE_PROJECT_KEY, project._id);
+      // Selection is persisted by loadProjects / handleProjectChange -
+      // this effect only loads the audit for whatever is shown.
       loadLatestAudit(project._id);
     } else if (!projectsLoading) {
       setAudit(null);
@@ -317,7 +327,7 @@ export default function Dashboard() {
     }
   }
 
-  function handleProjectChange(event) {
+  async function handleProjectChange(event) {
     const nextProject = projects.find(
       (item) => item._id === event.target.value,
     );
@@ -328,9 +338,16 @@ export default function Dashboard() {
     setAudit(null);
     setAuditError("");
 
-    localStorage.setItem(ACTIVE_PROJECT_KEY, nextProject._id);
-
     setSearchParams({ projectId: nextProject._id });
+
+    try {
+      await apiRequest(
+        `/projects/${encodeURIComponent(nextProject._id)}/activate`,
+        { method: "PATCH" },
+      );
+    } catch (error) {
+      setPageError(getErrorMessage(error));
+    }
   }
 
   const checks = audit?.checks || [];

@@ -40,6 +40,16 @@ const userSchema = new mongoose.Schema(
             enum: ["local", "google"],
             default: "local",
         },
+        /**
+         * The project the user currently has applied across the app.
+         * Stored on the account (not in localStorage) so it follows the user
+         * across browsers and devices.
+         */
+        activeProjectId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Project",
+            default: null,
+        },
         passwordResetTokenHash: {
             type: String,
             select: false,
@@ -60,6 +70,7 @@ userSchema.methods.toPublic = function () {
         email: this.email,
         avatar: this.avatar || "",
         authProvider: this.authProvider || "local",
+        activeProjectId: this.activeProjectId ? this.activeProjectId.toString() : null,
         createdAt: this.createdAt,
     };
 };
